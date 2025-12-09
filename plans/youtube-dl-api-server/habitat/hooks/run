@@ -1,0 +1,7 @@
+#!/bin/bash
+
+exec 2>&1
+
+cd {{ pkg.path }}
+ls -lha cd {{ pkg.path }}
+gunicorn -w {{ cfg.general.num_workers }} -b {{ cfg.general.bind_ip }}:{{ cfg.general.port }} app:app

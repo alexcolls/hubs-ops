@@ -1,0 +1,79 @@
+---
+
+- block:
+  - name: Include main vars
+    include_vars:
+      file: "{{ secrets_path }}/roles/ret/vars/main.yml"
+
+  - name: Include environment specific vars
+    include_vars:
+      file: "{{ secrets_path }}/roles/ret/vars/{{ env }}.yml"
+
+  - name: Install moz hab-butterfly (needed until https://github.com/habitat-sh/habitat/issues/5257 is closed, still seems broken if calling -r ipv4:9631)
+    shell: "hab pkg install mozillareality/hab-butterfly"
+    when: env != 'local'
+
+  - name: Create work directory
+    tempfile:
+      state: directory
+      suffix: deploy
+    register: work_dir
+
+  - name: Write Reticulum config file
+    template:
+      src: reticulum.toml.j2
+      dest: "{{ work_dir.path }}/reticulum.toml"
+
+  - name: Write telegraf config file
+    template:
+      src: telegraf.toml.j2
+      dest: "{{ work_dir.path }}/telegraf.toml"
+
+  - name: Deploy remote Reticulum configs
+    shell: "cat {{ work_dir.path }}/reticulum.toml | /hab/pkgs/mozillareality/hab-butterfly/0.39.1/20171118004554/bin/hab-butterfly config apply --peer $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4) --org mozillareality --ring mr reticulum.default $(date +%s)"
+    when: env != 'local'
+
+  - name: Deploy remote telegraf Agent configs
+    shell: "cat {{ work_dir.path }}/telegraf.toml | /hab/pkgs/mozillareality/hab-butterfly/0.39.1/20171118004554/bin/hab-butterfly config apply --peer $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4) --org mozillareality --ring mr telegraf.default $(date +%s)"
+    when: env != 'local'
+
+  - name: "Make local target config dir"
+    shell: "mkdir -p /hab/user/reticulum/config"
+    when: env == 'local'
+
+  - name: "Copy local config"
+    shell: "cp {{ work_dir.path }}/reticulum.toml /hab/user/reticulum/config/user.toml"
+    when: env == 'local'
+
+  - name: "Make local files dir"
+    shell: "mkdir -p /hab/svc/reticulum/files"
+    when: env == 'local'
+
+  - name: "Copy local ssl"
+    copy:
+      src: ssl.key.local
+      dest: "/hab/svc/reticulum/files/ssl.key"
+    when: env == 'local'
+
+  - name: "Copy local ssl cert"
+    copy:
+      src: ssl.pem.local
+      dest: "/hab/svc/reticulum/files/ssl.pem"
+    when: env == 'local'
+
+  - name: "Copy local ssl cert chain"
+    copy:
+      src: ssl-chain.pem.local
+      dest: "/hab/svc/reticulum/files/ssl-chain.pem"
+    when: env == 'local'
+
+  - name: Show JWT info
+    debug:
+      msg: "You need to run script/run.sh in reticulum and then while its running copy the JWT from priv/jwt-key.pem to /hab/svc/reticulum/files/jwt-key.pem"
+    when: env == 'local'
+
+  always:
+  - name: Remove work directory
+    file:
+      path: "{{ work_dir.path }}"
+      state: absent

@@ -1,0 +1,39 @@
+# Runs the bots for the smoke test.
+
+NUM_SQUAWKER_PROCESSES={{ num_squawker_processes }}
+CYCLE_TIME={{ cycle_time }}
+PROCESS_SPAWN_DELAY={{ process_spawn_delay }}
+URL="{{ host }}/{{ hub_sid }}"
+
+killall -g -9 node
+killall -g -9 chrome
+
+sleep 5
+
+echo "Spawning squawkers..."
+
+pushd hubs/scripts/bot
+
+npm install
+
+for i in `seq 1 $NUM_SQUAWKER_PROCESSES`; do
+  echo "Running bot $i"
+  # fork a new shell for each squawker process
+  (
+    while true; do
+      node ./run-bot.js --audio bot-recording.mp3 --data bot-recording.json --url $URL &
+      botid=$!
+      echo "Bot $i PID $botid"
+      sleep $CYCLE_TIME
+      echo "Killing bot $i at $botid"
+      pkill -KILL -P $botid
+      kill -KILL $botid
+      logrotate -s logrotate.state logrotate.conf
+      pushd /tmp ; ls -t1 | grep puppeteer_dev_chrome_profile | tail -n+$NUM_SQUAWKER_PROCESSES | xargs rm -rf ; popd
+    done
+  ) &
+  sleep $PROCESS_SPAWN_DELAY
+done
+
+# keep this process alive forever, so we can kill the process group easily
+while true; do sleep 1; done

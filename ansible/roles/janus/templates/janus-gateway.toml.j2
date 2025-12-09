@@ -1,0 +1,43 @@
+[general]
+server_name = "janus"
+admin_secret = "{{ janus_admin_secret }}"
+api_secret = ""
+log_to_syslog = "true"
+debug_level = 4
+
+[media]
+rtp_port_range = "51610-65535"
+
+[nat]
+ice_ignore_list = "eth0:0"
+ice_lite = "false"
+ice_tcp = "true"
+stun_server = "stun1.l.google.com"
+stun_port = 19302
+
+[plugins.sfu]
+max_room_size = 256
+
+[transports]
+disabled = [
+  "libjanus_pfunix.so"
+]
+
+[transports.websockets]
+ws = "no"
+admin_ws = "no"
+admin_wss = "no"
+wss = "yes"
+
+# This port is forwarded to port 443 via iptables, see terraform config for ASG
+wss_port = 8443
+
+[transports.http]
+http = "no"
+https = "no"
+secure_port = 8443
+admin_http = "yes"
+admin_port = 7000
+
+[events]
+broadcast = "yes"

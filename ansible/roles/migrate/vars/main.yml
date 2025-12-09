@@ -1,0 +1,9 @@
+---
+
+db_user: postgres
+
+schemas:
+  - public
+  - ret0_dw
+
+ops_repo: https://github.com/mozilla/hubs-ops.git

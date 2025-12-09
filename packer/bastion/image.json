@@ -1,0 +1,74 @@
+{
+  "variables": {
+    "aws_access_key": "",
+    "aws_secret_key": ""
+  },
+  "builders": [{
+    "type": "amazon-ebs",
+    "access_key": "{{user `aws_access_key`}}",
+    "secret_key": "{{user `aws_secret_key`}}",
+    "region": "us-west-1",
+    "associate_public_ip_address": true,
+    "iam_instance_profile": "dev-packer",
+    "subnet_id": "subnet-abacbdf3",
+    "security_group_id": "sg-37a2c751",
+    "source_ami_filter": {
+      "filters": {
+        "virtualization-type": "hvm",
+        "name": "ubuntu/images/*ubuntu-bionic-18.04-amd64-server-*",
+        "root-device-type": "ebs"
+      },
+      "owners": ["099720109477"],
+      "most_recent": true
+    },
+    "instance_type": "m3.medium",
+    "ssh_username": "ubuntu",
+    "ami_name": "bastion-{{timestamp}}"
+  }],
+  "provisioners": [
+    { "type": "file", "source": "../shared/files/hostname-adjectives", "destination": "hostname-adjectives" },
+    { "type": "file", "source": "../shared/files/hostname-nouns", "destination": "hostname-nouns" },
+    { "type": "file", "source": "../shared/files/set_hostname.sh", "destination": "set_hostname.sh" },
+    { "type": "file", "source": "../shared/files/set_host_type_prompt.sh", "destination": "set_host_type_prompt.sh" },
+    { "type": "file", "source": "../shared/files/set-hostname.service", "destination": "set-hostname.service" },
+    {
+      "type": "shell",
+      "execute_command": "echo 'packer' | sudo -S sh -c '{{ .Vars }} {{ .Path }}'",
+      "inline": [
+        "apt-get update",
+        "apt-get update",
+        "apt-get update",
+        "apt-get upgrade -y",
+        "apt-get install -y unattended-upgrades python3 awscli jq rsyslog-gnutls libpam-google-authenticator",
+        "update-alternatives --install /usr/bin/python python /usr/bin/python3 1",
+        "perl -p -i -e 's/preserve_hostname: false/preserve_hostname: true/g' /etc/cloud/cloud.cfg",
+        "mv hostname-nouns /usr/share/dict",
+        "mv hostname-adjectives /usr/share/dict",
+        "mv set_host_type_prompt.sh /usr/bin",
+        "mv set_hostname.sh /usr/bin",
+        "mv set-hostname.service /lib/systemd/system",
+        "chown root:root /lib/systemd/system/set-hostname.service",
+        "systemctl enable set-hostname",
+        "chown root:root /usr/share/dict/hostname-nouns",
+        "chown root:root /usr/share/dict/hostname-adjectives",
+        "chown root:root /usr/bin/set_hostname.sh",
+        "chown root:root /usr/bin/set_host_type_prompt.sh",
+        "chmod +x /usr/bin/set_host_type_prompt.sh",
+        "chmod +x /usr/bin/set_hostname.sh",
+        "echo \". /usr/bin/set_host_type_prompt.sh\" >> /home/ubuntu/.bashrc",
+        "echo \". /usr/bin/set_host_type_prompt.sh\" >> /root/.bashrc",
+        "echo \"{{ user `twofactorsecret` }}\" > /home/ubuntu/.google_authenticator",
+        "echo '\" RATE_LIMIT 3 30' >> /home/ubuntu/.google_authenticator",
+        "echo '\" WINDOW_SIZE 17' >> /home/ubuntu/.google_authenticator",
+        "echo '\" DISALLOW_REUSE' >> /home/ubuntu/.google_authenticator",
+        "echo '\" TOTP_AUTH' >> /home/ubuntu/.google_authenticator",
+        "chmod 0600 /home/ubuntu/.google_authenticator",
+        "chown ubuntu:ubuntu /home/ubuntu/.google_authenticator",
+        "echo \"auth required pam_google_authenticator.so\" >> /etc/pam.d/sshd",
+        "grep \"@include common-auth\" /etc/pam.d/sshd && sed -i -E 's/@include common-auth/#@include common-auth/' /etc/pam.d/sshd",
+        "grep \"ChallengeResponseAuthentication no\" /etc/ssh/sshd_config && sed -i -E 's/ChallengeResponseAuthentication no/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config",
+        "echo \"AuthenticationMethods publickey,keyboard-interactive\" >> /etc/ssh/sshd_config"
+      ]
+    }
+  ]
+}

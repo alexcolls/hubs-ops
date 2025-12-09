@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+exec 2>&1
+
+set -e
+
+exec janus --config={{ pkg.svc_config_path }}/janus.cfg --configs-folder={{ pkg.svc_config_path }} | logger

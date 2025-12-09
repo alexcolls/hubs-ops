@@ -1,0 +1,62 @@
+import groovy.json.JsonOutput
+
+// From https://issues.jenkins-ci.org/browse/JENKINS-44231
+
+// Given arbitrary string returns a strongly escaped shell string literal.
+// I.e. it will be in single quotes which turns off interpolation of $(...), etc.
+// E.g.: 1'2\3\'4 5"6 (groovy string) -> '1'\''2\3\'\''4 5"6' (groovy string which can be safely pasted into shell command).
+def shellString(s) {
+  // Replace ' with '\'' (https://unix.stackexchange.com/a/187654/260156). Then enclose with '...'.
+  // 1) Why not replace \ with \\? Because '...' does not treat backslashes in a special way.
+  // 2) And why not use ANSI-C quoting? I.e. we could replace ' with \'
+  // and enclose using $'...' (https://stackoverflow.com/a/8254156/4839573).
+  // Because ANSI-C quoting is not yet supported by Dash (default shell in Ubuntu & Debian) (https://unix.stackexchange.com/a/371873).
+  '\'' + s.replace('\'', '\'\\\'\'') + '\''
+}
+
+pipeline {
+  agent any
+
+  options {
+    ansiColor('xterm')
+  }
+
+  stages {
+    stage('pre-build') {
+      steps {
+        sh 'rm -rf ./plans/youtube-dl-api-server/results'
+      }
+    }
+
+    stage('build') {
+      steps {
+        script {
+          def habCommand = "cd plans/youtube-dl-api-server && sudo /usr/bin/hab-docker-studio -k mozillareality run build"
+          sh "/usr/bin/script --return -c ${shellString(habCommand)} /dev/null"
+
+          // Grab IDENT file and cat it from .hart
+          def s = $/eval 'ls -rt plans/youtube-dl-api-server/results/*.hart | head -n 1'/$
+          def hart = sh(returnStdout: true, script: "${s}").trim()
+          s = $/eval 'tail -n +6 ${hart} | xzcat | tar tf - | grep IDENT'/$
+          def identPath = sh(returnStdout: true, script: "${s}").trim()
+          s = $/eval 'tail -n +6 ${hart} | xzcat | tar xf - "${identPath}" -O'/$
+          def packageIdent = sh(returnStdout: true, script: "${s}").trim()
+          def smokeTestCommand = "cd plans/youtube-dl-api-server && sudo /usr/bin/hab-docker-studio -k mozillareality run /bin/bash scripts/smoke-test-and-remove.sh \\\"${packageIdent}\\\" "
+          sh "/usr/bin/script --return -c ${shellString(smokeTestCommand)} /dev/null"
+
+          sh 'sudo /usr/bin/hab-pkg-upload $(ls -rt plans/youtube-dl-api-server/results/*.hart | head -n 1)'
+          sh 'sudo /usr/bin/hab-ret-pkg-upload $(ls -rt plans/youtube-dl-api-server/results/*.hart | head -n 1)'
+          sh "sudo /usr/bin/hab-ret-pkg-promote ${packageIdent} polycosm-stable"
+          sh "sudo /usr/bin/hab-ret-pkg-promote ${packageIdent} polycosm-unstable"
+          build job: 'hab-promote', parameters: [[$class: 'StringParameterValue', name: "PACKAGE", value: packageIdent], [ $class: 'StringParameterValue', name: "CHANNEL", value: "stable"], [ $class: 'StringParameterValue', name: "FROM", value: "jenkins"]]
+        }
+      }
+    }
+  }
+
+  post {
+     always {
+       deleteDir()
+     }
+   }
+}

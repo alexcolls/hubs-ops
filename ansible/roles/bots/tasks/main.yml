@@ -1,0 +1,29 @@
+---
+
+- name: Include environment specific vars
+  include_vars:
+    file: "roles/bots/vars/{{ env }}.yml"
+
+- name: Set hub sid
+  set_fact:
+    hub_sid: "{{ hub_sids[bot_type] }}"
+
+- name: Write squawker run script
+  template:
+    src: squawkers.sh.j2
+    dest: "/home/ubuntu/squawkers.sh"
+
+- name: Checkout squawkers
+  git:
+    repo: https://github.com/mozilla/hubs.git
+    dest: hubs
+    version: master
+    force: true
+
+- name: Copy logrotate conf
+  copy:
+    src: logrotate.conf
+    dest: "/home/ubuntu/hubs/scripts/bot/logrotate.conf"
+
+- name: Run squawker script
+  shell: nohup bash squawkers.sh >> squawkers.log 2>&1 &

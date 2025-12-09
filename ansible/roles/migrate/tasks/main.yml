@@ -1,0 +1,65 @@
+---
+
+- block:
+  - name: Include environment specific secrets
+    include_vars:
+      file: "{{ secrets_path }}/roles/migrate/vars/{{ env }}.yml"
+    when: env != 'local'
+
+  - name: Include environment specific vars
+    include_vars:
+      file: "roles/migrate/vars/{{ env }}.yml"
+
+  - name: Create work directory
+    tempfile:
+      state: directory
+      suffix: deploy
+    register: work_dir
+
+  - name: Checkout hubs-ops
+    git:
+      repo: "{{ ops_repo }}"
+      dest: "{{ work_dir.path }}"
+    when: env != 'local'
+
+  - name: Copy migrations
+    copy:
+      src: "../db"
+      dest: "{{ work_dir.path }}"
+    when: env == 'local'
+
+  - name: "Write configs"
+    template:
+      src: "flyway.conf.j2"
+      dest: "{{ work_dir.path }}/db/{{ item }}/conf/flyway.conf"
+    loop: "{{ schemas }}"
+
+  - name: Baseline public schema
+    shell: "docker run --mount type=bind,source={{ work_dir.path }}/db/public/conf,target=/conf --mount type=bind,source={{ work_dir.path }}/db/public/sql,target=/sql --network=host --rm boxfuse/flyway -configFiles=/conf/flyway.conf baseline"
+    args:
+      chdir: "{{ work_dir.path }}/db/public"
+
+  - name: Migrate schemas
+    shell: "docker run --mount type=bind,source={{ work_dir.path }}/db/{{ item }}/conf,target=/conf --mount type=bind,source={{ work_dir.path }}/db/{{ item }}/sql,target=/sql --network=host --rm boxfuse/flyway -configFiles=/conf/flyway.conf migrate"
+    args:
+      chdir: "{{ work_dir.path }}/db/{{ item }}"
+    loop: "{{ schemas }}"
+
+  - name: Copy FDW script
+    copy:
+      src: "update_dw_fdw.sh"
+      dest: "{{ work_dir.path }}/update_dw_fdw.sh"
+
+  - name: Make FDW script executable
+    file:
+      dest: "{{ work_dir.path }}/update_dw_fdw.sh"
+      mode: "a+x"
+
+  - name: Run FDW script
+    shell: "{{ work_dir.path }}/update_dw_fdw.sh \"{{ dw_db_host }}\" \"{{ dw_db_port }}\" \"{{ dw_db_user }}\" \"{{ dw_db_password }}\" \"{{ dw_db_remote_user_password }}\" \"ret_dw\" \"{{ db_replica_host }}\" \"{{ db_replica_port }}\" \"ret_dw\" \"{{ db_dw_user_password }}\" \"{{ db_replica_dbname }}\""
+
+  always:
+  - name: Remove work directory
+    file:
+      path: "{{ work_dir.path }}"
+      state: absent
